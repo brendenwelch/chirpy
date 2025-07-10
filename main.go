@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -19,9 +20,14 @@ func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
 }
 
 func (cfg *apiConfig) handlerMetrics(w http.ResponseWriter, req *http.Request) {
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
-	code, err := fmt.Fprintf(w, "Hits: %d", cfg.fileserverHits.Load())
+	code, err := fmt.Fprintf(w, `<html>
+	<body>
+		<h1>Welcome, Chirpy Admin</h1>
+		<p>Chirpy has been visited %d times!</p>
+	</body>
+</html>`, cfg.fileserverHits.Load())
 	if err != nil {
 		fmt.Printf("failed to respond with code %v: %v", code, err)
 	}
@@ -35,6 +41,28 @@ func (cfg *apiConfig) handlerResetMetrics(w http.ResponseWriter, req *http.Reque
 	if err != nil {
 		fmt.Printf("failed to respond with code %v: %v", code, err)
 	}
+}
+
+func handlerValidateChirp(w http.ResponseWriter, req *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	data := struct {
+		Body string `json:"body"`
+	}{}
+	if err := json.NewDecoder(req.Body).Decode(&data); err != nil {
+		log.Printf("failed to decode request: %v", err)
+		w.WriteHeader(400)
+		fmt.Fprintf(w, "{\"error\":\"Something went wrong\"}")
+		return
+	}
+	if len(data.Body) > 140 {
+		w.WriteHeader(400)
+		fmt.Fprintf(w, "{\"error\":\"Chirp is too long\"}")
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	fmt.Fprintf(w, "%v", "{\"valid\":true}")
 }
 
 func handlerHealth(w http.ResponseWriter, req *http.Request) {
@@ -53,9 +81,11 @@ func main() {
 	fs := http.StripPrefix("/app/", http.FileServer(http.Dir(".")))
 	mux.Handle("/app/", cfg.middlewareMetricsInc(fs))
 
-	mux.HandleFunc("/healthz", handlerHealth)
-	mux.HandleFunc("/metrics", cfg.handlerMetrics)
-	mux.HandleFunc("/reset", cfg.handlerResetMetrics)
+	mux.HandleFunc("GET /api/healthz", handlerHealth)
+	mux.HandleFunc("POST /api/validate_chirp", handlerValidateChirp)
+
+	mux.HandleFunc("GET /admin/metrics", cfg.handlerMetrics)
+	mux.HandleFunc("POST /admin/reset", cfg.handlerResetMetrics)
 
 	server := &http.Server{
 		Addr:    ":8080",

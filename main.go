@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"sync/atomic"
 )
 
@@ -55,14 +56,29 @@ func handlerValidateChirp(w http.ResponseWriter, req *http.Request) {
 		fmt.Fprintf(w, "{\"error\":\"Something went wrong\"}")
 		return
 	}
+
 	if len(data.Body) > 140 {
 		w.WriteHeader(400)
 		fmt.Fprintf(w, "{\"error\":\"Chirp is too long\"}")
 		return
 	}
 
+	profanes := map[string]struct{}{
+		"kerfuffle": {},
+		"sharbert":  {},
+		"fornax":    {},
+	}
+	words := strings.Split(data.Body, " ")
+	for i, word := range words {
+		_, exists := profanes[strings.ToLower(word)]
+		if exists {
+			words[i] = "****"
+		}
+	}
+	cleaned := strings.Join(words, " ")
+
 	w.WriteHeader(http.StatusOK)
-	fmt.Fprintf(w, "%v", "{\"valid\":true}")
+	fmt.Fprintf(w, "%v%v%v", "{\"cleaned_body\":\"", cleaned, "\"}")
 }
 
 func handlerHealth(w http.ResponseWriter, req *http.Request) {

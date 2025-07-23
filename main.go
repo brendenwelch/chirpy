@@ -1,15 +1,22 @@
 package main
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 	"sync/atomic"
+
+	"github.com/brendenwelch/chirpy/internal/database"
+	"github.com/joho/godotenv"
+	_ "github.com/lib/pq"
 )
 
 type apiConfig struct {
+	dbQueries      *database.Queries
 	fileserverHits atomic.Int32
 }
 
@@ -91,15 +98,22 @@ func handlerHealth(w http.ResponseWriter, req *http.Request) {
 }
 
 func main() {
+	godotenv.Load()
+	dbURL := os.Getenv("DB_URL")
+	db, err := sql.Open("postgres", dbURL)
+	if err != nil {
+		log.Fatalf("failed to open database: %v\n", err)
+	}
+
 	cfg := &apiConfig{}
+	cfg.dbQueries = database.New(db)
+
 	mux := http.NewServeMux()
 
 	fs := http.StripPrefix("/app/", http.FileServer(http.Dir(".")))
 	mux.Handle("/app/", cfg.middlewareMetricsInc(fs))
-
 	mux.HandleFunc("GET /api/healthz", handlerHealth)
 	mux.HandleFunc("POST /api/validate_chirp", handlerValidateChirp)
-
 	mux.HandleFunc("GET /admin/metrics", cfg.handlerMetrics)
 	mux.HandleFunc("POST /admin/reset", cfg.handlerResetMetrics)
 

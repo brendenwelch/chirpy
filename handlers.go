@@ -6,7 +6,9 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"time"
 
+	"github.com/google/uuid"
 	_ "github.com/lib/pq"
 )
 
@@ -20,70 +22,60 @@ func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
 func (cfg *apiConfig) handlerMetrics(w http.ResponseWriter, req *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
-	code, err := fmt.Fprintf(w, `<html>
+	fmt.Fprintf(w, `<html>
 	<body>
 		<h1>Welcome, Chirpy Admin</h1>
 		<p>Chirpy has been visited %d times!</p>
 	</body>
 </html>`, cfg.fileserverHits.Load())
-	if err != nil {
-		fmt.Printf("failed to respond with code %v: %v", code, err)
-	}
 }
 
 func (cfg *apiConfig) handlerResetMetrics(w http.ResponseWriter, req *http.Request) {
-	cfg.fileserverHits.Store(0)
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	cfg.fileserverHits.Store(0)
+	cfg.db.ResetUsers(req.Context())
 	w.WriteHeader(http.StatusOK)
-	code, err := fmt.Fprint(w, http.StatusText(http.StatusOK))
-	if err != nil {
-		fmt.Printf("failed to respond with code %v: %v", code, err)
-	}
+	fmt.Fprint(w, http.StatusText(http.StatusOK))
 }
 
 func (cfg *apiConfig) handlerUsers(w http.ResponseWriter, req *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
-	data := struct {
+	params := struct {
 		Email string `json:"email"`
 	}{}
-	if err := json.NewDecoder(req.Body).Decode(&data); err != nil {
-		log.Printf("failed to decode request: %v", err)
-		w.WriteHeader(400)
-		fmt.Fprintf(w, "{\"error\":\"Something went wrong\"}")
+	if err := json.NewDecoder(req.Body).Decode(&params); err != nil {
+		respondWithError(w, 400, "Failed to decode request")
 		return
 	}
-	user, err := cfg.db.CreateUser(req.Context(), data.Email)
+	user, err := cfg.db.CreateUser(req.Context(), params.Email)
 	if err != nil {
-		log.Printf("failed to create user: %v", err)
-		w.WriteHeader(400)
-		fmt.Fprintf(w, "{\"error\":\"Something went wrong\"}")
+		respondWithError(w, 400, "Failed to create user")
 		return
 	}
 
-	w.WriteHeader(http.StatusCreated)
-	fmt.Fprintf(w, "%v%v%v", "{\"id\":\"", user.ID, "\",")
-	fmt.Fprintf(w, "%v%v%v", "\"created_at\":\"", user.CreatedAt, "\",")
-	fmt.Fprintf(w, "%v%v%v", "\"updated_at\":\"", user.UpdatedAt, "\",")
-	fmt.Fprintf(w, "%v%v%v", "\"email\":\"", user.Email, "\"}")
+	respondWithJSON(w, http.StatusCreated, struct {
+		ID        uuid.UUID `json:"id"`
+		CreatedAt time.Time `json:"created_at"`
+		UpdatedAt time.Time `json:"updated_at"`
+		Email     string    `json:"email"`
+	}{
+		ID:        user.ID,
+		CreatedAt: user.CreatedAt,
+		UpdatedAt: user.UpdatedAt,
+		Email:     user.Email,
+	})
 }
 
 func handlerValidateChirp(w http.ResponseWriter, req *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
-	data := struct {
+	params := struct {
 		Body string `json:"body"`
 	}{}
-	if err := json.NewDecoder(req.Body).Decode(&data); err != nil {
-		log.Printf("failed to decode request: %v", err)
-		w.WriteHeader(400)
-		fmt.Fprintf(w, "{\"error\":\"Something went wrong\"}")
+	if err := json.NewDecoder(req.Body).Decode(&params); err != nil {
+		respondWithError(w, 400, "Failed to decode request")
 		return
 	}
 
-	if len(data.Body) > 140 {
-		w.WriteHeader(400)
-		fmt.Fprintf(w, "{\"error\":\"Chirp is too long\"}")
+	if len(params.Body) > 140 {
+		respondWithError(w, 400, "Chirp is too long")
 		return
 	}
 
@@ -92,7 +84,7 @@ func handlerValidateChirp(w http.ResponseWriter, req *http.Request) {
 		"sharbert":  {},
 		"fornax":    {},
 	}
-	words := strings.Split(data.Body, " ")
+	words := strings.Split(params.Body, " ")
 	for i, word := range words {
 		_, exists := profanes[strings.ToLower(word)]
 		if exists {
@@ -101,15 +93,35 @@ func handlerValidateChirp(w http.ResponseWriter, req *http.Request) {
 	}
 	cleaned := strings.Join(words, " ")
 
-	w.WriteHeader(http.StatusOK)
-	fmt.Fprintf(w, "%v%v%v", "{\"cleaned_body\":\"", cleaned, "\"}")
+	respondWithJSON(w, http.StatusOK, struct {
+		CleanedBody string `json:"cleaned_body"`
+	}{
+		CleanedBody: cleaned,
+	})
 }
 
 func handlerHealth(w http.ResponseWriter, req *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
-	code, err := fmt.Fprint(w, http.StatusText(http.StatusOK))
+	fmt.Fprint(w, http.StatusText(http.StatusOK))
+}
+
+func respondWithError(w http.ResponseWriter, code int, msg string) {
+	log.Println(msg)
+	respondWithJSON(w, code, struct {
+		Error string `json:"error"`
+	}{
+		Error: msg,
+	})
+}
+
+func respondWithJSON(w http.ResponseWriter, code int, payload any) {
+	w.Header().Set("Content-Type", "application/json")
+	data, err := json.Marshal(payload)
 	if err != nil {
-		fmt.Printf("failed to respond with code %v: %v", code, err)
+		respondWithError(w, 400, "Failed to marshal JSON")
+		return
 	}
+	w.WriteHeader(code)
+	fmt.Fprint(w, string(data))
 }

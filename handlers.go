@@ -41,6 +41,33 @@ func (cfg *apiConfig) handlerResetMetrics(w http.ResponseWriter, req *http.Reque
 	}
 }
 
+func (cfg *apiConfig) handlerUsers(w http.ResponseWriter, req *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	data := struct {
+		Email string `json:"email"`
+	}{}
+	if err := json.NewDecoder(req.Body).Decode(&data); err != nil {
+		log.Printf("failed to decode request: %v", err)
+		w.WriteHeader(400)
+		fmt.Fprintf(w, "{\"error\":\"Something went wrong\"}")
+		return
+	}
+	user, err := cfg.db.CreateUser(req.Context(), data.Email)
+	if err != nil {
+		log.Printf("failed to create user: %v", err)
+		w.WriteHeader(400)
+		fmt.Fprintf(w, "{\"error\":\"Something went wrong\"}")
+		return
+	}
+
+	w.WriteHeader(http.StatusCreated)
+	fmt.Fprintf(w, "%v%v%v", "{\"id\":\"", user.ID, "\",")
+	fmt.Fprintf(w, "%v%v%v", "\"created_at\":\"", user.CreatedAt, "\",")
+	fmt.Fprintf(w, "%v%v%v", "\"updated_at\":\"", user.UpdatedAt, "\",")
+	fmt.Fprintf(w, "%v%v%v", "\"email\":\"", user.Email, "\"}")
+}
+
 func handlerValidateChirp(w http.ResponseWriter, req *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 

@@ -13,6 +13,7 @@ import (
 )
 
 type apiConfig struct {
+	platform       string
 	db             *database.Queries
 	fileserverHits atomic.Int32
 }
@@ -26,6 +27,7 @@ func main() {
 	}
 
 	cfg := &apiConfig{}
+	cfg.platform = os.Getenv("PLATFORM")
 	cfg.db = database.New(db)
 
 	mux := http.NewServeMux()

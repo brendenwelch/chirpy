@@ -32,6 +32,13 @@ func (cfg *apiConfig) handlerMetrics(w http.ResponseWriter, req *http.Request) {
 
 func (cfg *apiConfig) handlerResetMetrics(w http.ResponseWriter, req *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+
+	if cfg.platform != "dev" {
+		w.WriteHeader(http.StatusForbidden)
+		fmt.Fprint(w, http.StatusText(http.StatusForbidden))
+		return
+	}
+
 	cfg.fileserverHits.Store(0)
 	cfg.db.ResetUsers(req.Context())
 	w.WriteHeader(http.StatusOK)

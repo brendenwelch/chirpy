@@ -153,6 +153,32 @@ func (cfg *apiConfig) handlerGetChirps(w http.ResponseWriter, req *http.Request)
 	respondWithJSON(w, http.StatusOK, payload)
 }
 
+func (cfg *apiConfig) handlerGetChirp(w http.ResponseWriter, req *http.Request) {
+	id, err := uuid.Parse(req.PathValue("chirpID"))
+	if err != nil {
+		respondWithError(w, 400, "Invalid chirp ID")
+		return
+	}
+	chirp, err := cfg.db.GetChirp(req.Context(), id)
+	if err != nil {
+		respondWithError(w, 404, "Failed to get chirp")
+		return
+	}
+	respondWithJSON(w, http.StatusOK, struct {
+		ID        uuid.UUID `json:"id"`
+		CreatedAt time.Time `json:"created_at"`
+		UpdatedAt time.Time `json:"updated_at"`
+		Body      string    `json:"body"`
+		UserID    uuid.UUID `json:"user_id"`
+	}{
+		ID:        chirp.ID,
+		CreatedAt: chirp.CreatedAt,
+		UpdatedAt: chirp.UpdatedAt,
+		Body:      chirp.Body,
+		UserID:    chirp.UserID,
+	})
+}
+
 func handlerHealth(w http.ResponseWriter, req *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(http.StatusOK)

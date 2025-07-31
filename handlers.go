@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/brendenwelch/chirpy/internal/auth"
 	"github.com/brendenwelch/chirpy/internal/database"
 	"github.com/google/uuid"
 	_ "github.com/lib/pq"
@@ -48,19 +49,63 @@ func (cfg *apiConfig) handlerReset(w http.ResponseWriter, req *http.Request) {
 
 func (cfg *apiConfig) handlerUsers(w http.ResponseWriter, req *http.Request) {
 	params := struct {
-		Email string `json:"email"`
+		Email    string `json:"email"`
+		Password string `json:"password"`
 	}{}
 	if err := json.NewDecoder(req.Body).Decode(&params); err != nil {
 		respondWithError(w, 400, "Failed to decode request")
 		return
 	}
-	user, err := cfg.db.CreateUser(req.Context(), params.Email)
+
+	hashed, err := auth.HashPassword(params.Password)
+	if err != nil {
+		respondWithError(w, 400, "Failed to hash password")
+		return
+	}
+
+	user, err := cfg.db.CreateUser(req.Context(), database.CreateUserParams{
+		Email:          params.Email,
+		HashedPassword: hashed,
+	})
 	if err != nil {
 		respondWithError(w, 400, "Failed to create user")
 		return
 	}
 
 	respondWithJSON(w, http.StatusCreated, struct {
+		ID        uuid.UUID `json:"id"`
+		CreatedAt time.Time `json:"created_at"`
+		UpdatedAt time.Time `json:"updated_at"`
+		Email     string    `json:"email"`
+	}{
+		ID:        user.ID,
+		CreatedAt: user.CreatedAt,
+		UpdatedAt: user.UpdatedAt,
+		Email:     user.Email,
+	})
+}
+
+func (cfg *apiConfig) handlerLogin(w http.ResponseWriter, req *http.Request) {
+	params := struct {
+		Email    string `json:"email"`
+		Password string `json:"password"`
+	}{}
+	if err := json.NewDecoder(req.Body).Decode(&params); err != nil {
+		respondWithError(w, 400, "Failed to decode request")
+		return
+	}
+
+	user, err := cfg.db.GetUserByEmail(req.Context(), params.Email)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "Incorrect email or password")
+		return
+	}
+	if err := auth.CheckPasswordHash(params.Password, user.HashedPassword); err != nil {
+		respondWithError(w, http.StatusUnauthorized, "Incorrect email or password")
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, struct {
 		ID        uuid.UUID `json:"id"`
 		CreatedAt time.Time `json:"created_at"`
 		UpdatedAt time.Time `json:"updated_at"`

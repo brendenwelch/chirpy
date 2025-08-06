@@ -85,6 +85,55 @@ func (cfg *apiConfig) handlerUsers(w http.ResponseWriter, req *http.Request) {
 	})
 }
 
+func (cfg *apiConfig) handlerUpdateUser(w http.ResponseWriter, req *http.Request) {
+	token, err := auth.GetBearerToken(req.Header)
+	if err != nil {
+		respondWithError(w, 401, "No valid access token provided")
+		return
+	}
+	userID, err := auth.ValidateJWT(token, cfg.secret)
+	if err != nil {
+		respondWithError(w, 401, "Invalid token: "+err.Error())
+		return
+	}
+
+	params := struct {
+		Email    string `json:"email"`
+		Password string `json:"password"`
+	}{}
+	if err := json.NewDecoder(req.Body).Decode(&params); err != nil {
+		respondWithError(w, 400, "Failed to decode request")
+		return
+	}
+	hashedPassword, err := auth.HashPassword(params.Password)
+	if err != nil {
+		respondWithError(w, 400, "Failed to hash password")
+		return
+	}
+
+	user, err := cfg.db.UpdateUser(req.Context(), database.UpdateUserParams{
+		ID:             userID,
+		Email:          params.Email,
+		HashedPassword: hashedPassword,
+	})
+	if err != nil {
+		respondWithError(w, 400, "Failed to update user")
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, struct {
+		ID        uuid.UUID `json:"id"`
+		CreatedAt time.Time `json:"created_at"`
+		UpdatedAt time.Time `json:"updated_at"`
+		Email     string    `json:"email"`
+	}{
+		ID:        user.ID,
+		CreatedAt: user.CreatedAt,
+		UpdatedAt: user.UpdatedAt,
+		Email:     user.Email,
+	})
+}
+
 func (cfg *apiConfig) handlerLogin(w http.ResponseWriter, req *http.Request) {
 	params := struct {
 		Email            string `json:"email"`

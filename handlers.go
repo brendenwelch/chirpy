@@ -106,29 +106,92 @@ func (cfg *apiConfig) handlerLogin(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	tokenDuration := time.Duration(params.ExpiresInSeconds) * time.Second
+	tokenDuration := time.Duration(params.ExpiresInSeconds)
 	if tokenDuration < time.Second || tokenDuration > time.Hour {
 		tokenDuration = time.Hour
 	}
 	token, err := auth.MakeJWT(user.ID, cfg.secret, tokenDuration)
 	if err != nil {
-		respondWithError(w, 400, "Failed to create token")
+		respondWithError(w, 400, "Failed to create access token")
+		return
+	}
+
+	refreshTokenString, err := auth.MakeRefreshToken()
+	if err != nil {
+		respondWithError(w, 400, "Failed to create refresh token")
+		return
+	}
+	refreshToken, err := cfg.db.CreateRefreshToken(req.Context(), database.CreateRefreshTokenParams{
+		Token:  refreshTokenString,
+		UserID: user.ID,
+	})
+	if err != nil {
+		respondWithError(w, 400, "Failed to add refresh token to database")
 		return
 	}
 
 	respondWithJSON(w, http.StatusOK, struct {
-		ID        uuid.UUID `json:"id"`
-		CreatedAt time.Time `json:"created_at"`
-		UpdatedAt time.Time `json:"updated_at"`
-		Email     string    `json:"email"`
-		Token     string    `json:"token"`
+		ID           uuid.UUID `json:"id"`
+		CreatedAt    time.Time `json:"created_at"`
+		UpdatedAt    time.Time `json:"updated_at"`
+		Email        string    `json:"email"`
+		Token        string    `json:"token"`
+		RefreshToken string    `json:"refresh_token"`
 	}{
-		ID:        user.ID,
-		CreatedAt: user.CreatedAt,
-		UpdatedAt: user.UpdatedAt,
-		Email:     user.Email,
-		Token:     token,
+		ID:           user.ID,
+		CreatedAt:    user.CreatedAt,
+		UpdatedAt:    user.UpdatedAt,
+		Email:        user.Email,
+		Token:        token,
+		RefreshToken: refreshToken.Token,
 	})
+}
+
+func (cfg *apiConfig) handlerRefresh(w http.ResponseWriter, req *http.Request) {
+	token, err := auth.GetBearerToken(req.Header)
+	if err != nil {
+		respondWithError(w, 400, "No valid token provided")
+		return
+	}
+	refreshToken, err := cfg.db.GetRefreshToken(req.Context(), token)
+	if err != nil {
+		respondWithError(w, 401, "Refresh token not in database")
+		return
+	}
+	if refreshToken.ExpiresAt.Before(time.Now()) {
+		respondWithError(w, 401, "Refresh token expired")
+		return
+	}
+	if refreshToken.RevokedAt.Valid {
+		respondWithError(w, 401, "Refresh token revoked")
+		return
+	}
+
+	accessToken, err := auth.MakeJWT(refreshToken.UserID, cfg.secret, time.Hour)
+	if err != nil {
+		respondWithError(w, 400, "Failed to create access token")
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, struct {
+		Token string `json:"token"`
+	}{
+		Token: accessToken,
+	})
+}
+
+func (cfg *apiConfig) handlerRevoke(w http.ResponseWriter, req *http.Request) {
+	token, err := auth.GetBearerToken(req.Header)
+	if err != nil {
+		respondWithError(w, 400, "No valid token provided")
+		return
+	}
+	err = cfg.db.RevokeRefreshToken(req.Context(), token)
+	if err != nil {
+		respondWithError(w, 400, "Refresh token does not exist")
+	}
+
+	respondWithJSON(w, 204, struct{}{})
 }
 
 func (cfg *apiConfig) handlerCreateChirp(w http.ResponseWriter, req *http.Request) {

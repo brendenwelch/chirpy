@@ -87,8 +87,9 @@ func (cfg *apiConfig) handlerUsers(w http.ResponseWriter, req *http.Request) {
 
 func (cfg *apiConfig) handlerLogin(w http.ResponseWriter, req *http.Request) {
 	params := struct {
-		Email    string `json:"email"`
-		Password string `json:"password"`
+		Email            string `json:"email"`
+		Password         string `json:"password"`
+		ExpiresInSeconds int    `json:"expires_in_seconds,omitempty"`
 	}{}
 	if err := json.NewDecoder(req.Body).Decode(&params); err != nil {
 		respondWithError(w, 400, "Failed to decode request")
@@ -105,31 +106,48 @@ func (cfg *apiConfig) handlerLogin(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	tokenDuration := time.Duration(params.ExpiresInSeconds) * time.Second
+	if tokenDuration < time.Second || tokenDuration > time.Hour {
+		tokenDuration = time.Hour
+	}
+	token, err := auth.MakeJWT(user.ID, cfg.secret, tokenDuration)
+	if err != nil {
+		respondWithError(w, 400, "Failed to create token")
+		return
+	}
+
 	respondWithJSON(w, http.StatusOK, struct {
 		ID        uuid.UUID `json:"id"`
 		CreatedAt time.Time `json:"created_at"`
 		UpdatedAt time.Time `json:"updated_at"`
 		Email     string    `json:"email"`
+		Token     string    `json:"token"`
 	}{
 		ID:        user.ID,
 		CreatedAt: user.CreatedAt,
 		UpdatedAt: user.UpdatedAt,
 		Email:     user.Email,
+		Token:     token,
 	})
 }
 
 func (cfg *apiConfig) handlerCreateChirp(w http.ResponseWriter, req *http.Request) {
-	params := struct {
-		Body   string    `json:"body"`
-		UserID uuid.UUID `json:"user_id"`
-	}{}
-	if err := json.NewDecoder(req.Body).Decode(&params); err != nil {
-		respondWithError(w, 400, "Failed to decode request")
+	token, err := auth.GetBearerToken(req.Header)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "User not logged in")
+		return
+	}
+	userID, err := auth.ValidateJWT(token, cfg.secret)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "Invalid user. Try logging in again: "+err.Error())
 		return
 	}
 
-	if len(params.Body) > 140 {
-		respondWithError(w, 400, "Chirp is too long")
+	params := struct {
+		Body string `json:"body"`
+	}{}
+	if err := json.NewDecoder(req.Body).Decode(&params); err != nil {
+		respondWithError(w, 400, "Failed to decode request")
 		return
 	}
 
@@ -146,10 +164,14 @@ func (cfg *apiConfig) handlerCreateChirp(w http.ResponseWriter, req *http.Reques
 		}
 	}
 	cleaned := strings.Join(words, " ")
+	if len(cleaned) > 140 {
+		respondWithError(w, 400, "Chirp is too long")
+		return
+	}
 
 	chirp, err := cfg.db.CreateChirp(req.Context(), database.CreateChirpParams{
 		Body:   cleaned,
-		UserID: params.UserID,
+		UserID: userID,
 	})
 	if err != nil {
 		respondWithError(w, 400, "Failed to create chirp")

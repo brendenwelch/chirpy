@@ -13,26 +13,26 @@ import (
 )
 
 type apiConfig struct {
-	platform       string
 	db             *database.Queries
 	fileserverHits atomic.Int32
+	platform       string
+	secret         string
 }
 
 func main() {
+	cfg := &apiConfig{}
 	godotenv.Load()
-	dbURL := os.Getenv("DB_URL")
-	db, err := sql.Open("postgres", dbURL)
+	cfg.platform = os.Getenv("PLATFORM")
+	cfg.secret = os.Getenv("SECRET")
+
+	db, err := sql.Open("postgres", os.Getenv("DB_URL"))
 	if err != nil {
 		log.Fatalf("failed to open database: %v\n", err)
 	}
-
-	cfg := &apiConfig{}
-	cfg.platform = os.Getenv("PLATFORM")
 	cfg.db = database.New(db)
 
 	mux := http.NewServeMux()
-	fs := http.StripPrefix("/app/", http.FileServer(http.Dir(".")))
-	mux.Handle("/app/", cfg.middlewareMetricsInc(fs))
+	mux.Handle("/app/", cfg.middlewareMetricsInc(http.StripPrefix("/app/", http.FileServer(http.Dir(".")))))
 	mux.HandleFunc("GET /api/healthz", handlerHealth)
 	mux.HandleFunc("POST /api/users", cfg.handlerUsers)
 	mux.HandleFunc("POST /api/login", cfg.handlerLogin)

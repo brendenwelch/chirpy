@@ -305,6 +305,41 @@ func (cfg *apiConfig) handlerCreateChirp(w http.ResponseWriter, req *http.Reques
 	})
 }
 
+func (cfg *apiConfig) handlerDeleteChirp(w http.ResponseWriter, req *http.Request) {
+	token, err := auth.GetBearerToken(req.Header)
+	if err != nil {
+		respondWithError(w, 401, "No valid access token provided")
+		return
+	}
+	userID, err := auth.ValidateJWT(token, cfg.secret)
+	if err != nil {
+		respondWithError(w, 401, "Invalid token: "+err.Error())
+		return
+	}
+
+	chirpID, err := uuid.Parse(req.PathValue("chirpID"))
+	if err != nil {
+		respondWithError(w, 400, "Invalid chirp ID")
+		return
+	}
+	chirp, err := cfg.db.GetChirp(req.Context(), chirpID)
+	if err != nil {
+		respondWithError(w, 404, "Chirp not found")
+		return
+	}
+	if userID != chirp.UserID {
+		respondWithError(w, 403, "Not authorized to delete this chirp")
+		return
+	}
+
+	err = cfg.db.DeleteChirp(req.Context(), chirp.ID)
+	if err != nil {
+		respondWithError(w, 400, "Failed to delete chirp")
+		return
+	}
+	respondWithJSON(w, 204, struct{}{})
+}
+
 func (cfg *apiConfig) handlerGetChirps(w http.ResponseWriter, req *http.Request) {
 	chirps, err := cfg.db.GetAllChirps(req.Context())
 	if err != nil {

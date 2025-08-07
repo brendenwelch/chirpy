@@ -384,10 +384,26 @@ func (cfg *apiConfig) handlerDeleteChirp(w http.ResponseWriter, req *http.Reques
 }
 
 func (cfg *apiConfig) handlerGetChirps(w http.ResponseWriter, req *http.Request) {
-	chirps, err := cfg.db.GetAllChirps(req.Context())
-	if err != nil {
-		respondWithError(w, 400, "Failed to get chirps")
-		return
+	var chirps []database.Chirp
+	authorIDString := req.URL.Query().Get("author_id")
+	if authorIDString == "" {
+		var err error
+		chirps, err = cfg.db.GetAllChirps(req.Context())
+		if err != nil {
+			respondWithError(w, 400, "Failed to get chirps")
+			return
+		}
+	} else {
+		authorID, err := uuid.Parse(authorIDString)
+		if err != nil {
+			respondWithError(w, 400, "Invalid chirp author id")
+			return
+		}
+		chirps, err = cfg.db.GetAllChirpsByUser(req.Context(), authorID)
+		if err != nil {
+			respondWithError(w, 400, "Failed to get chirps")
+			return
+		}
 	}
 
 	type Chirp struct {

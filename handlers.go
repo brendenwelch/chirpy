@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -404,6 +405,13 @@ func (cfg *apiConfig) handlerGetChirps(w http.ResponseWriter, req *http.Request)
 			respondWithError(w, 400, "Failed to get chirps")
 			return
 		}
+	}
+
+	sortString := req.URL.Query().Get("sort")
+	if sortString == "desc" {
+		sort.Slice(chirps, func(i int, j int) bool {
+			return chirps[i].CreatedAt.After(chirps[j].CreatedAt)
+		})
 	}
 
 	type Chirp struct {

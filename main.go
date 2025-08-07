@@ -17,6 +17,7 @@ type apiConfig struct {
 	fileserverHits atomic.Int32
 	platform       string
 	secret         string
+	polkaKey       string
 }
 
 func main() {
@@ -24,6 +25,7 @@ func main() {
 	godotenv.Load()
 	cfg.platform = os.Getenv("PLATFORM")
 	cfg.secret = os.Getenv("SECRET")
+	cfg.polkaKey = os.Getenv("POLKA_KEY")
 
 	db, err := sql.Open("postgres", os.Getenv("DB_URL"))
 	if err != nil {

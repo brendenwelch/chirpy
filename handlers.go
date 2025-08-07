@@ -250,6 +250,12 @@ func (cfg *apiConfig) handlerRevoke(w http.ResponseWriter, req *http.Request) {
 }
 
 func (cfg *apiConfig) handlerUpgradeUser(w http.ResponseWriter, req *http.Request) {
+	key, err := auth.GetAPIKey(req.Header)
+	if err != nil || key != cfg.polkaKey {
+		log.Printf("Invalid api key provided: %v\n", key)
+		respondWithJSON(w, 401, struct{}{})
+		return
+	}
 	params := struct {
 		Event string `json:"event"`
 		Data  struct {
@@ -257,6 +263,7 @@ func (cfg *apiConfig) handlerUpgradeUser(w http.ResponseWriter, req *http.Reques
 		} `json:"data"`
 	}{}
 	if err := json.NewDecoder(req.Body).Decode(&params); err != nil {
+		log.Println("Failed to decode request body")
 		respondWithJSON(w, 400, struct{}{})
 		return
 	}
@@ -264,8 +271,9 @@ func (cfg *apiConfig) handlerUpgradeUser(w http.ResponseWriter, req *http.Reques
 		respondWithJSON(w, 204, struct{}{})
 		return
 	}
-	_, err := cfg.db.UpgradeUser(req.Context(), params.Data.UserID)
+	_, err = cfg.db.UpgradeUser(req.Context(), params.Data.UserID)
 	if err != nil {
+		log.Printf("User not found: id %v", params.Data.UserID)
 		respondWithJSON(w, 404, struct{}{})
 		return
 	}
